@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Tablelands Mill Pad Finder</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"/>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #1a1a2e; color: #eee; height: 100vh; display: flex; flex-direction: column; }
+  #header { background: #16213e; padding: 12px 16px; display: flex; align-items: center; gap: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.4); z-index: 1000; flex-shrink: 0; }
+  #header h1 { font-size: 16px; font-weight: 700; color: #e94560; white-space: nowrap; }
+  #search-wrap { flex: 1; position: relative; }
+  #search { width: 100%; padding: 10px 40px 10px 14px; border-radius: 8px; border: 2px solid #0f3460; background: #0f3460; color: #fff; font-size: 16px; outline: none; }
+  #search:focus { border-color: #e94560; }
+  #search::placeholder { color: #888; }
+  #clear-btn { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); background: none; border: none; color: #888; font-size: 18px; cursor: pointer; display: none; }
+  #main { flex: 1; display: flex; overflow: hidden; }
+  #results { width: 260px; flex-shrink: 0; overflow-y: auto; background: #16213e; border-right: 1px solid #0f3460; }
+  #result-count { padding: 10px 14px; font-size: 12px; color: #888; border-bottom: 1px solid #0f3460; }
+  .pad-item { padding: 12px 14px; border-bottom: 1px solid #0f3460; cursor: pointer; transition: background 0.15s; }
+  .pad-item:hover { background: #0f3460; }
+  .pad-item.active { background: #e94560; }
+  .pad-name { font-size: 15px; font-weight: 700; }
+  .pad-loc { font-size: 12px; color: #aaa; margin-top: 2px; }
+  .pad-item.active .pad-loc { color: #fcc; }
+  #map { flex: 1; }
+  #popup-panel { display: none; position: fixed; bottom: 0; left: 0; right: 0; background: #16213e; border-top: 3px solid #e94560; padding: 16px 16px 24px; z-index: 2000; }
+  #popup-panel h2 { font-size: 20px; color: #e94560; margin-bottom: 4px; }
+  #popup-panel p { font-size: 13px; color: #aaa; margin-bottom: 14px; }
+  .btn-row { display: flex; gap: 10px; }
+  .nav-btn { flex: 1; padding: 13px; border-radius: 8px; border: none; font-size: 15px; font-weight: 600; cursor: pointer; }
+  .nav-btn.google { background: #4285F4; color: white; }
+  .nav-btn.apple { background: #555; color: white; }
+  .close-btn { position: absolute; top: 12px; right: 16px; background: none; border: none; color: #888; font-size: 24px; cursor: pointer; line-height: 1; }
+  #map-loading { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); text-align: center; color: #888; font-size: 14px; pointer-events: none; }
+  @media (max-width: 500px) {
+    #results { width: 200px; }
+    .pad-name { font-size: 14px; }
+  }
+</style>
+</head>
+<body>
+<div id="header">
+  <h1>🌿 Pad Finder</h1>
+  <div id="search-wrap">
+    <input id="search" type="text" placeholder="Search pad number or area..." autocomplete="off" autocorrect="off" spellcheck="false"/>
+    <button id="clear-btn" onclick="clearSearch()">✕</button>
+  </div>
+</div>
+<div id="main">
+  <div id="results">
+    <div id="result-count"></div>
+    <div id="result-list"></div>
+  </div>
+  <div id="map">
+    <div id="map-loading">Loading map...</div>
+  </div>
+</div>
+<div id="popup-panel">
+  <button class="close-btn" onclick="closePopup()">✕</button>
+  <h2 id="popup-name"></h2>
+  <p id="popup-info"></p>
+  <div class="btn-row">
+    <button class="nav-btn google" onclick="openGoogleMaps()">&#9655; Navigate (Google Maps)</button>
+    <button class="nav-btn apple" onclick="openAppleMaps()">&#9655; Apple Maps</button>
+  </div>
+</div>
+
+<script>
+const PADS = [{"name": "9R", "lat": -17.208684, "lon": 145.3529909, "location": "Tolga", "folder": "Tableland Mill Pads"}, {"name": "9Q", "lat": -17.2064553, "lon": 145.3566532, "location": "", "folder": "Tableland Mill Pads"}, {"name": "9P", "lat": -17.204831, "lon": 145.3534069, "location": "", "folder": "Tableland Mill Pads"}, {"name": "9O", "lat": -17.212069, "lon": 145.339941, "location": "", "folder": "Tableland Mill Pads"}, {"name": "9N", "lat": -17.208604, "lon": 145.341982, "location": "", "folder": "Tableland Mill Pads"}, {"name": "9M", "lat": -17.210144, "lon": 145.345287, "location": "", "folder": "Tableland Mill Pads"}, {"name": "9L", "lat": -17.2054722, "lon": 145.3482211, "location": "", "folder": "Tableland Mill Pads"}, {"name": "9K", "lat": -17.198714, "lon": 145.347786, "location": "", "folder": "Tableland Mill Pads"}, {"name": "9J", "lat": -17.191817, "lon": 145.34558, "location": "", "folder": "Tableland Mill Pads"}, {"name": "9H", "lat": -17.206848, "lon": 145.33543, "location": "", "folder": "Tableland Mill Pads"}, {"name": "9G", "lat": -17.204431, "lon": 145.341485, "location": "", "folder": "Tableland Mill Pads"}, {"name": "9F", "lat": -17.203132, "lon": 145.338124, "location": "", "folder": "Tableland Mill Pads"}, {"name": "9E", "lat": -17.198171, "lon": 145.339738, "location": "", "folder": "Tableland Mill Pads"}, {"name": "9B", "lat": -17.1940356, "lon": 145.3382828, "location": "", "folder": "Tableland Mill Pads"}, {"name": "9A", "lat": -17.187192, "lon": 145.339246, "location": "", "folder": "Tableland Mill Pads"}, {"name": "7B", "lat": -17.159111, "lon": 145.310155, "location": "", "folder": "Tableland Mill Pads"}, {"name": "7A", "lat": -17.1599877, "lon": 145.3164392, "location": "", "folder": "Tableland Mill Pads"}, {"name": "73", "lat": -17.116379, "lon": 145.197217, "location": "", "folder": "Tableland Mill Pads"}, {"name": "70", "lat": -17.173987, "lon": 145.202303, "location": "Mutchilba", "folder": "Tableland Mill Pads"}, {"name": "65B", "lat": -17.126762, "lon": 145.141506, "location": "Dimbulah", "folder": "Tableland Mill Pads"}, {"name": "65A", "lat": -17.126845, "lon": 145.129953, "location": "", "folder": "Tableland Mill Pads"}, {"name": "5B", "lat": -17.167252, "lon": 145.322651, "location": "", "folder": "Tableland Mill Pads"}, {"name": "59", "lat": -17.143552, "lon": 145.177122, "location": "", "folder": "Tableland Mill Pads"}, {"name": "50", "lat": -17.148762, "lon": 145.232228, "location": "", "folder": "Tableland Mill Pads"}, {"name": "47", "lat": -17.121714, "lon": 145.258609, "location": "Mutchilba", "folder": "Tableland Mill Pads"}, {"name": "46", "lat": -17.1189357, "lon": 145.2684, "location": "", "folder": "Tableland Mill Pads"}, {"name": "45", "lat": -17.118807, "lon": 145.274221, "location": "Mutchilba", "folder": "Tableland Mill Pads"}, {"name": "44 - **CAUTION POWERLINES**", "lat": -17.114896, "lon": 145.283722, "location": "Mutchilba", "folder": "Tableland Mill Pads"}, {"name": "40A", "lat": -17.117571, "lon": 145.308029, "location": "", "folder": "Tableland Mill Pads"}, {"name": "38Y", "lat": -17.077508, "lon": 145.304354, "location": "Chewko", "folder": "Tableland Mill Pads"}, {"name": "38W", "lat": -17.083801, "lon": 145.323302, "location": "", "folder": "Tableland Mill Pads"}, {"name": "38V", "lat": -17.0999502, "lon": 145.3269296, "location": "Chewko", "folder": "Tableland Mill Pads"}, {"name": "38U2 - **CAUTION POWERLINES**", "lat": -17.103098, "lon": 145.321221, "location": "Chewko", "folder": "Tableland Mill Pads"}, {"name": "38U", "lat": -17.108693, "lon": 145.309786, "location": "", "folder": "Tableland Mill Pads"}, {"name": "38I", "lat": -17.076014, "lon": 145.298181, "location": "Chewko", "folder": "Tableland Mill Pads"}, {"name": "38F", "lat": -17.083686, "lon": 145.295576, "location": "Chewko", "folder": "Tableland Mill Pads"}, {"name": "38E", "lat": -17.079413, "lon": 145.295891, "location": "", "folder": "Tableland Mill Pads"}, {"name": "Z36L", "lat": -17.076727, "lon": 145.283502, "location": "Mutchilba", "folder": "Tableland Mill Pads"}, {"name": "Z36K_NQDVG181201", "lat": -17.078053, "lon": 145.278665, "location": "Mutchilba", "folder": "Tableland Mill Pads"}, {"name": "Z36J_NQDVG181201", "lat": -17.07002, "lon": 145.288151, "location": "Chewko", "folder": "Tableland Mill Pads"}, {"name": "Z36I_NQDVG181201", "lat": -17.080604, "lon": 145.292934, "location": "", "folder": "Tableland Mill Pads"}, {"name": "Z36H_NQDVG181201", "lat": -17.072664, "lon": 145.294302, "location": "Chewko", "folder": "Tableland Mill Pads"}, {"name": "35 - **CAUTION POWERLINES**", "lat": -17.112043, "lon": 145.29753, "location": "Mutchilba", "folder": "Tableland Mill Pads"}, {"name": "Z34B_NQDVG210731", "lat": -17.050811, "lon": 145.30663, "location": "Chewko", "folder": "Tableland Mill Pads"}, {"name": "Z34A_NQDVG210731", "lat": -17.044902, "lon": 145.301686, "location": "Chewko", "folder": "Tableland Mill Pads"}, {"name": "Z33H_NQDVG181201", "lat": -17.018478, "lon": 145.269344, "location": "New Northcote", "folder": "Tableland Mill Pads"}, {"name": "Z33G_NQDVG181201", "lat": -17.022934, "lon": 145.285277, "location": "", "folder": "Tableland Mill Pads"}, {"name": "Z33F_NQDVG181201", "lat": -17.013928, "lon": 145.272313, "location": "", "folder": "Tableland Mill Pads"}, {"name": "Z33E_NQDVG181201", "lat": -17.020264, "lon": 145.276171, "location": "", "folder": "Tableland Mill Pads"}, {"name": "Z33D_NQDVG181201", "lat": -17.031995, "lon": 145.278543, "location": "New Northcote", "folder": "Tableland Mill Pads"}, {"name": "Z33C_NQDVG181201", "lat": -17.032136, "lon": 145.283359, "location": "New Northcote", "folder": "Tableland Mill Pads"}, {"name": "Z33B_NQDVG181201", "lat": -17.028247, "lon": 145.280487, "location": "", "folder": "Tableland Mill Pads"}, {"name": "Z33A_NQDVG181201", "lat": -17.036676, "lon": 145.284671, "location": "Chewko", "folder": "Tableland Mill Pads"}, {"name": "Z32C_NQDVG210731", "lat": -17.053822, "lon": 145.290592, "location": "Chewko", "folder": "Tableland Mill Pads"}, {"name": "Z32B_NQDVG181201", "lat": -17.062501, "lon": 145.293328, "location": "", "folder": "Tableland Mill Pads"}, {"name": "Z32A_NQDVG181201", "lat": -17.048416, "lon": 145.298712, "location": "", "folder": "Tableland Mill Pads"}, {"name": "Z31K", "lat": -17.071958, "lon": 145.298942, "location": "Chewko", "folder": "Tableland Mill Pads"}, {"name": "Z31H", "lat": -17.0723, "lon": 145.303387, "location": "Chewko", "folder": "Tableland Mill Pads"}, {"name": "Z31G_NQDVG181201", "lat": -17.06381, "lon": 145.302392, "location": "", "folder": "Tableland Mill Pads"}, {"name": "Z31F_NQDVG181201", "lat": -17.066662, "lon": 145.309766, "location": "", "folder": "Tableland Mill Pads"}, {"name": "Z31E_NQDVG181201", "lat": -17.060583, "lon": 145.315873, "location": "", "folder": "Tableland Mill Pads"}, {"name": "Z31D_NQDVG181201", "lat": -17.061336, "lon": 145.318171, "location": "", "folder": "Tableland Mill Pads"}, {"name": "Z31C_NQDVG181201", "lat": -17.069406, "lon": 145.321319, "location": "", "folder": "Tableland Mill Pads"}, {"name": "Z31B_NQDVG181201", "lat": -17.063552, "lon": 145.327058, "location": "", "folder": "Tableland Mill Pads"}, {"name": "Z31A_NQDVG181201", "lat": -17.071653, "lon": 145.32783, "location": "", "folder": "Tableland Mill Pads"}, {"name": "Z30D_NQDVG181201", "lat": -17.056574, "lon": 145.310423, "location": "", "folder": "Tableland Mill Pads"}, {"name": "Z30C_NQDVG181201", "lat": -17.057762, "lon": 145.321446, "location": "", "folder": "Tableland Mill Pads"}, {"name": "Z30B_NQDVG181201", "lat": -17.051488, "lon": 145.319377, "location": "", "folder": "Tableland Mill Pads"}, {"name": "Z30A_NQDVG181201", "lat": -17.050447, "lon": 145.324872, "location": "", "folder": "Tableland Mill Pads"}, {"name": "307A", "lat": -17.292481, "lon": 145.563651, "location": "Yungaburra", "folder": "Tableland Mill Pads"}, {"name": "306A", "lat": -17.291941, "lon": 145.588227, "location": "Yungaburra", "folder": "Tableland Mill Pads"}, {"name": "305B", "lat": -17.300937, "lon": 145.604339, "location": "Tula", "folder": "Tableland Mill Pads"}, {"name": "305A", "lat": -17.294414, "lon": 145.599834, "location": "Yungaburra", "folder": "Tableland Mill Pads"}, {"name": "304", "lat": -17.325805, "lon": 145.592941, "location": "Tula", "folder": "Tableland Mill Pads"}, {"name": "303", "lat": -17.27986, "lon": 145.606924, "location": "Yungaburra", "folder": "Tableland Mill Pads"}, {"name": "302", "lat": -17.280319, "lon": 145.59956, "location": "Yungaburra", "folder": "Tableland Mill Pads"}, {"name": "301A", "lat": -17.246846, "lon": 145.563896, "location": "Kairi", "folder": "Tableland Mill Pads"}, {"name": "2H", "lat": -17.14754, "lon": 145.32837, "location": "Chewko", "folder": "Tableland Mill Pads"}, {"name": "2G", "lat": -17.144776, "lon": 145.324083, "location": "Chewko", "folder": "Tableland Mill Pads"}, {"name": "2F", "lat": -17.142691, "lon": 145.327982, "location": "Chewko", "folder": "Tableland Mill Pads"}, {"name": "2E", "lat": -17.134442, "lon": 145.332492, "location": "Chewko", "folder": "Tableland Mill Pads"}, {"name": "2D", "lat": -17.1317103, "lon": 145.3278905, "location": "Chewko", "folder": "Tableland Mill Pads"}, {"name": "2C", "lat": -17.127914, "lon": 145.330599, "location": "Chewko", "folder": "Tableland Mill Pads"}, {"name": "2B", "lat": -17.1385, "lon": 145.331818, "location": "", "folder": "Tableland Mill Pads"}, {"name": "2A", "lat": -17.127977, "lon": 145.335427, "location": "", "folder": "Tableland Mill Pads"}, {"name": "Z28A_NQDVG181201", "lat": -17.044283, "lon": 145.287851, "location": "", "folder": "Tableland Mill Pads"}, {"name": "283", "lat": -17.185104, "lon": 145.524011, "location": "Kairi", "folder": "Tableland Mill Pads"}, {"name": "282B **CAUTION POWERLINES**", "lat": -17.194034, "lon": 145.516446, "location": "Kairi", "folder": "Tableland Mill Pads"}, {"name": "281C", "lat": -17.265563, "lon": 145.538263, "location": "Yungaburra", "folder": "Tableland Mill Pads"}, {"name": "281B", "lat": -17.249906, "lon": 145.528516, "location": "", "folder": "Tableland Mill Pads"}, {"name": "281A", "lat": -17.2045, "lon": 145.5405, "location": "", "folder": "Tableland Mill Pads"}, {"name": "280A", "lat": -17.28568, "lon": 145.556836, "location": "Yungaburra", "folder": "Tableland Mill Pads"}, {"name": "279", "lat": -17.28519, "lon": 145.547532, "location": "Yungaburra", "folder": "Tableland Mill Pads"}, {"name": "276E", "lat": -17.307499, "lon": 145.543844, "location": "Yungaburra", "folder": "Tableland Mill Pads"}, {"name": "276D", "lat": -17.30022, "lon": 145.544609, "location": "Yungaburra", "folder": "Tableland Mill Pads"}, {"name": "276C", "lat": -17.305631, "lon": 145.554238, "location": "Yungaburra", "folder": "Tableland Mill Pads"}, {"name": "276B", "lat": -17.356567, "lon": 145.540044, "location": "Malanda", "folder": "Tableland Mill Pads"}, {"name": "276A", "lat": -17.293353, "lon": 145.520968, "location": "Tumbaree", "folder": "Tableland Mill Pads"}, {"name": "274A", "lat": -17.339778, "lon": 145.512958, "location": "Tumbaree", "folder": "Tableland Mill Pads"}, {"name": "273 - **CAUTION POWERLINES**\u00a0", "lat": -17.339396, "lon": 145.49551, "location": "Tumbaree", "folder": "Tableland Mill Pads"}, {"name": "269", "lat": -17.284054, "lon": 145.500517, "location": "", "folder": "Tableland Mill Pads"}, {"name": "268 **CAUTION POWERLINES**", "lat": -17.341742, "lon": 145.502776, "location": "Tumbaree", "folder": "Tableland Mill Pads"}, {"name": "267", "lat": -17.334237, "lon": 145.485178, "location": "Tumbaree", "folder": "Tableland Mill Pads"}, {"name": "266 - **CAUTION POWERLINES**", "lat": -17.34757, "lon": 145.505645, "location": "Tumbaree", "folder": "Tableland Mill Pads"}, {"name": "265A", "lat": -17.313303, "lon": 145.481361, "location": "Tumbaree", "folder": "Tableland Mill Pads"}, {"name": "264A", "lat": -17.289271, "lon": 145.498772, "location": "Tumbaree", "folder": "Tableland Mill Pads"}, {"name": "263C", "lat": -17.298356, "lon": 145.534074, "location": "", "folder": "Tableland Mill Pads"}, {"name": "263B - **CAUTION POWERLINES**", "lat": -17.29843, "lon": 145.520846, "location": "Tumbaree", "folder": "Tableland Mill Pads"}, {"name": "263A", "lat": -17.293077, "lon": 145.527201, "location": "Tumbaree", "folder": "Tableland Mill Pads"}, {"name": "262", "lat": -17.286154, "lon": 145.513784, "location": "", "folder": "Tableland Mill Pads"}, {"name": "260A", "lat": -17.28033, "lon": 145.514257, "location": "", "folder": "Tableland Mill Pads"}, {"name": "25G", "lat": -17.067125, "lon": 145.332163, "location": "", "folder": "Tableland Mill Pads"}, {"name": "25F", "lat": -17.078835, "lon": 145.335672, "location": "", "folder": "Tableland Mill Pads"}, {"name": "25E", "lat": -17.076287, "lon": 145.338005, "location": "", "folder": "Tableland Mill Pads"}, {"name": "25D", "lat": -17.072181, "lon": 145.342095, "location": "", "folder": "Tableland Mill Pads"}, {"name": "25C", "lat": -17.088143, "lon": 145.337847, "location": "", "folder": "Tableland Mill Pads"}, {"name": "25B", "lat": -17.082688, "lon": 145.328798, "location": "", "folder": "Tableland Mill Pads"}, {"name": "25A", "lat": -17.078109, "lon": 145.332264, "location": "", "folder": "Tableland Mill Pads"}, {"name": "259B", "lat": -17.27499, "lon": 145.521694, "location": "", "folder": "Tableland Mill Pads"}, {"name": "259A", "lat": -17.272535, "lon": 145.526447, "location": "", "folder": "Tableland Mill Pads"}, {"name": "258B", "lat": -17.297771, "lon": 145.477754, "location": "Tumbaree", "folder": "Tableland Mill Pads"}, {"name": "258A", "lat": -17.273293, "lon": 145.531664, "location": "Atherton", "folder": "Tableland Mill Pads"}, {"name": "257", "lat": -17.260404, "lon": 145.524759, "location": "", "folder": "Tableland Mill Pads"}, {"name": "255", "lat": -17.242329, "lon": 145.544071, "location": "", "folder": "Tableland Mill Pads"}, {"name": "250A", "lat": -17.199552, "lon": 145.526356, "location": "Kairi", "folder": "Tableland Mill Pads"}, {"name": "24A", "lat": -17.066519, "lon": 145.334735, "location": "", "folder": "Tableland Mill Pads"}, {"name": "244B", "lat": -17.241239, "lon": 145.513931, "location": "Tolga", "folder": "Tableland Mill Pads"}, {"name": "244A", "lat": -17.246206, "lon": 145.509843, "location": "Tolga", "folder": "Tableland Mill Pads"}, {"name": "243B", "lat": -17.2469, "lon": 145.5276, "location": "", "folder": "Tableland Mill Pads"}, {"name": "243A", "lat": -17.2368, "lon": 145.5226, "location": "", "folder": "Tableland Mill Pads"}, {"name": "23J", "lat": -17.062912, "lon": 145.336756, "location": "Chewko", "folder": "Tableland Mill Pads"}, {"name": "23I", "lat": -17.068213, "lon": 145.341251, "location": "Chewko", "folder": "Tableland Mill Pads"}, {"name": "23C", "lat": -17.0507626, "lon": 145.3302053, "location": "Chewko", "folder": "Tableland Mill Pads"}, {"name": "23B", "lat": -17.056026, "lon": 145.331955, "location": "Chewko", "folder": "Tableland Mill Pads"}, {"name": "23A", "lat": -17.0620782, "lon": 145.3353446, "location": "Chewko", "folder": "Tableland Mill Pads"}, {"name": "239", "lat": -17.222697, "lon": 145.433691, "location": "Tolga", "folder": "Tableland Mill Pads"}, {"name": "237A", "lat": -17.2021113, "lon": 145.4748283, "location": "Tolga", "folder": "Tableland Mill Pads"}, {"name": "22E", "lat": -17.082306, "lon": 145.349014, "location": "Chewko", "folder": "Tableland Mill Pads"}, {"name": "22D", "lat": -17.077318, "lon": 145.345694, "location": "Chewko", "folder": "Tableland Mill Pads"}, {"name": "22C", "lat": -17.072734, "lon": 145.343383, "location": "", "folder": "Tableland Mill Pads"}, {"name": "22B", "lat": -17.087458, "lon": 145.340003, "location": "Chewko", "folder": "Tableland Mill Pads"}, {"name": "22A", "lat": -17.085479, "lon": 145.349591, "location": "", "folder": "Tableland Mill Pads"}, {"name": "226", "lat": -17.2055985, "lon": 145.5110923, "location": "Tolga", "folder": "Tableland Mill Pads"}, {"name": "222", "lat": -17.246346, "lon": 145.478427, "location": "Tolga", "folder": "Tableland Mill Pads"}, {"name": "Z221C_NQDVG181201", "lat": -17.119629, "lon": 145.414826, "location": "", "folder": "Tableland Mill Pads"}, {"name": "221B", "lat": -17.16807, "lon": 145.440871, "location": "", "folder": "Tableland Mill Pads"}, {"name": "21D", "lat": -17.106956, "lon": 145.338079, "location": "Chewko", "folder": "Tableland Mill Pads"}, {"name": "21C", "lat": -17.0967593, "lon": 145.350607, "location": "Chewko", "folder": "Tableland Mill Pads"}, {"name": "21B", "lat": -17.111307, "lon": 145.340523, "location": "", "folder": "Tableland Mill Pads"}, {"name": "21A", "lat": -17.108592, "lon": 145.347101, "location": "", "folder": "Tableland Mill Pads"}, {"name": "219", "lat": -17.1945565, "lon": 145.4954467, "location": "", "folder": "Tableland Mill Pads"}, {"name": "215", "lat": -17.181034, "lon": 145.493309, "location": "", "folder": "Tableland Mill Pads"}, {"name": "213", "lat": -17.170119, "lon": 145.491772, "location": "", "folder": "Tableland Mill Pads"}, {"name": "20E", "lat": -17.103745, "lon": 145.333619, "location": "Chewko", "folder": "Tableland Mill Pads"}, {"name": "20D", "lat": -17.089421, "lon": 145.345105, "location": "", "folder": "Tableland Mill Pads"}, {"name": "20C", "lat": -17.096259, "lon": 145.338041, "location": "Chewko", "folder": "Tableland Mill Pads"}, {"name": "20B", "lat": -17.09828, "lon": 145.34363, "location": "Chewko", "folder": "Tableland Mill Pads"}, {"name": "20A", "lat": -17.095254, "lon": 145.350883, "location": "Chewko", "folder": "Tableland Mill Pads"}, {"name": "206", "lat": -17.203071, "lon": 145.530772, "location": "Kairi", "folder": "Tableland Mill Pads"}, {"name": "204", "lat": -17.204156, "lon": 145.522818, "location": "Kairi", "folder": "Tableland Mill Pads"}, {"name": "200", "lat": -17.1800834, "lon": 145.4464572, "location": "", "folder": "Tableland Mill Pads"}, {"name": "200C", "lat": -17.179057, "lon": 145.434293, "location": "Tolga", "folder": "Tableland Mill Pads"}, {"name": "1F", "lat": -17.114551, "lon": 145.323128, "location": "Chewko", "folder": "Tableland Mill Pads"}, {"name": "1E **CAUTION POWERLINES**", "lat": -17.128286, "lon": 145.324065, "location": "Chewko", "folder": "Tableland Mill Pads"}, {"name": "1D", "lat": -17.118462, "lon": 145.3242975, "location": "Chewko", "folder": "Tableland Mill Pads"}, {"name": "1C", "lat": -17.109763, "lon": 145.31075, "location": "", "folder": "Tableland Mill Pads"}, {"name": "1B", "lat": -17.108631, "lon": 145.32889, "location": "", "folder": "Tableland Mill Pads"}, {"name": "1A", "lat": -17.116474, "lon": 145.33529, "location": "", "folder": "Tableland Mill Pads"}, {"name": "199B", "lat": -16.995892, "lon": 145.511123, "location": "Mareeba", "folder": "Tableland Mill Pads"}, {"name": "199A", "lat": -16.993042, "lon": 145.513199, "location": "Mareeba", "folder": "Tableland Mill Pads"}, {"name": "198C", "lat": -17.010595, "lon": 145.461402, "location": "Mareeba", "folder": "Tableland Mill Pads"}, {"name": "196", "lat": -17.022109, "lon": 145.508101, "location": "", "folder": "Tableland Mill Pads"}, {"name": "195", "lat": -16.995517, "lon": 145.498182, "location": "Mareeba", "folder": "Tableland Mill Pads"}, {"name": "194B", "lat": -17.065093, "lon": 145.467842, "location": "", "folder": "Tableland Mill Pads"}, {"name": "194A", "lat": -17.054202, "lon": 145.452996, "location": "Mareeba", "folder": "Tableland Mill Pads"}, {"name": "193C", "lat": -17.017912, "lon": 145.497531, "location": "Mareeba", "folder": "Tableland Mill Pads"}, {"name": "193B", "lat": -17.029065, "lon": 145.491933, "location": "", "folder": "Tableland Mill Pads"}, {"name": "193A - **CAUTION POWERLINES**", "lat": -17.012358, "lon": 145.498389, "location": "", "folder": "Tableland Mill Pads"}, {"name": "191", "lat": -17.0121226, "lon": 145.4630589, "location": "", "folder": "Tableland Mill Pads"}, {"name": "188", "lat": -17.139137, "lon": 145.421702, "location": "", "folder": "Tableland Mill Pads"}, {"name": "Z185_NQDVG181201", "lat": -17.037279, "lon": 145.414806, "location": "Mareeba", "folder": "Tableland Mill Pads"}, {"name": "178", "lat": -17.025715, "lon": 145.375582, "location": "", "folder": "Tableland Mill Pads"}, {"name": "173", "lat": -17.088588, "lon": 145.36299, "location": "", "folder": "Tableland Mill Pads"}, {"name": "172", "lat": -17.066771, "lon": 145.360555, "location": "", "folder": "Tableland Mill Pads"}, {"name": "171C", "lat": -17.086079, "lon": 145.379243, "location": "", "folder": "Tableland Mill Pads"}, {"name": "171B", "lat": -17.064752, "lon": 145.350425, "location": "", "folder": "Tableland Mill Pads"}, {"name": "171A", "lat": -17.062626, "lon": 145.356596, "location": "", "folder": "Tableland Mill Pads"}, {"name": "169C", "lat": -16.907914, "lon": 145.43085, "location": "Biboohra", "folder": "Tableland Mill Pads"}, {"name": "169B", "lat": -16.916368, "lon": 145.438581, "location": "Biboohra", "folder": "Tableland Mill Pads"}, {"name": "169A", "lat": -16.907161, "lon": 145.436645, "location": "", "folder": "Tableland Mill Pads"}, {"name": "168B", "lat": -16.955394, "lon": 145.399549, "location": "Biboohra", "folder": "Tableland Mill Pads"}, {"name": "168A", "lat": -16.954799, "lon": 145.412493, "location": "Biboohra", "folder": "Tableland Mill Pads"}, {"name": "167", "lat": -16.898202, "lon": 145.412599, "location": "Biboohra", "folder": "Tableland Mill Pads"}, {"name": "166", "lat": -16.938112, "lon": 145.402316, "location": "", "folder": "Tableland Mill Pads"}, {"name": "165", "lat": -16.94359, "lon": 145.391489, "location": "Biboohra", "folder": "Tableland Mill Pads"}, {"name": "164", "lat": -16.9289221, "lon": 145.415234, "location": "", "folder": "Tableland Mill Pads"}, {"name": "163", "lat": -16.960998, "lon": 145.392602, "location": "", "folder": "Tableland Mill Pads"}, {"name": "162", "lat": -16.963411, "lon": 145.405534, "location": "", "folder": "Tableland Mill Pads"}, {"name": "160B - **CAUTION POWERLINES**", "lat": -16.915047, "lon": 145.416479, "location": "Biboohra", "folder": "Tableland Mill Pads"}, {"name": "Z159_NQDVG181201", "lat": -16.987901, "lon": 145.401016, "location": "", "folder": "Tableland Mill Pads"}, {"name": "Z157_NQDVG181201", "lat": -16.985763, "lon": 145.379338, "location": "", "folder": "Tableland Mill Pads"}, {"name": "153", "lat": -16.982961, "lon": 145.350165, "location": "", "folder": "Tableland Mill Pads"}, {"name": "152", "lat": -16.993504, "lon": 145.331738, "location": "", "folder": "Tableland Mill Pads"}, {"name": "151C", "lat": -16.949971, "lon": 145.325457, "location": "", "folder": "Tableland Mill Pads"}, {"name": "151B", "lat": -16.960696, "lon": 145.32404, "location": "", "folder": "Tableland Mill Pads"}, {"name": "151A", "lat": -16.949741, "lon": 145.337077, "location": "Biboohra", "folder": "Tableland Mill Pads"}, {"name": "148", "lat": -16.964688, "lon": 145.338997, "location": "", "folder": "Tableland Mill Pads"}, {"name": "147D", "lat": -16.916847, "lon": 145.391091, "location": "", "folder": "Tableland Mill Pads"}, {"name": "147C", "lat": -16.901114, "lon": 145.400132, "location": "", "folder": "Tableland Mill Pads"}, {"name": "147B", "lat": -16.910774, "lon": 145.40568, "location": "", "folder": "Tableland Mill Pads"}, {"name": "147A", "lat": -16.917363, "lon": 145.405108, "location": "", "folder": "Tableland Mill Pads"}, {"name": "146", "lat": -16.930842, "lon": 145.392535, "location": "Biboohra", "folder": "Tableland Mill Pads"}, {"name": "146B", "lat": -16.923225, "lon": 145.397521, "location": "Biboohra", "folder": "Tableland Mill Pads"}, {"name": "Z143_NQDVG181201", "lat": -17.003088, "lon": 145.277945, "location": "New Northcote", "folder": "Tableland Mill Pads"}, {"name": "Z142", "lat": -17.013003, "lon": 145.288404, "location": "New Northcote", "folder": "Tableland Mill Pads"}, {"name": "138", "lat": -17.016864, "lon": 145.408299, "location": "", "folder": "Tableland Mill Pads"}, {"name": "134 - **CAUTION POWERLINES**", "lat": -16.990762, "lon": 145.4694405, "location": "Mareeba", "folder": "Tableland Mill Pads"}, {"name": "133", "lat": -16.958726, "lon": 145.453081, "location": "", "folder": "Tableland Mill Pads"}, {"name": "132", "lat": -16.971883, "lon": 145.458786, "location": "Mareeba", "folder": "Tableland Mill Pads"}, {"name": "130", "lat": -16.995446, "lon": 145.523104, "location": "", "folder": "Tableland Mill Pads"}, {"name": "10G", "lat": -17.211041, "lon": 145.275471, "location": "", "folder": "Tableland Mill Pads"}, {"name": "10F", "lat": -17.189032, "lon": 145.296534, "location": "", "folder": "Tableland Mill Pads"}, {"name": "10E", "lat": -17.205821, "lon": 145.297571, "location": "", "folder": "Tableland Mill Pads"}, {"name": "10D", "lat": -17.19925, "lon": 145.297545, "location": "", "folder": "Tableland Mill Pads"}, {"name": "10C", "lat": -17.2045436, "lon": 145.2803625, "location": "", "folder": "Tableland Mill Pads"}, {"name": "10B", "lat": -17.208062, "lon": 145.287847, "location": "", "folder": "Tableland Mill Pads"}, {"name": "10A", "lat": -17.1952466, "lon": 145.287185, "location": "", "folder": "Tableland Mill Pads"}, {"name": "101B", "lat": -17.140602, "lon": 145.154636, "location": "", "folder": "Tableland Mill Pads"}, {"name": "101A", "lat": -17.1072197, "lon": 145.1438362, "location": "", "folder": "Tableland Mill Pads"}, {"name": "200B", "lat": -17.170289, "lon": 145.445444, "location": "Tolga", "folder": "Tableland Mill Pads"}, {"name": "Arriga Mill_NQDHR181204", "lat": -17.119893, "lon": 145.345463, "location": "Chewko", "folder": "Tableland Mill Pads"}, {"name": "48 - **CAUTION POWERLINES**", "lat": -17.117, "lon": 145.278585, "location": "Mutchilba", "folder": "Tableland Mill Pads"}, {"name": "43E", "lat": -17.1041483, "lon": 145.282118, "location": "Mutchilba", "folder": "Tableland Mill Pads"}, {"name": "43D", "lat": -17.102321, "lon": 145.28707, "location": "Mutchilba", "folder": "Tableland Mill Pads"}, {"name": "43C", "lat": -17.100469, "lon": 145.291687, "location": "Mutchilba", "folder": "Tableland Mill Pads"}, {"name": "43B", "lat": -17.111577, "lon": 145.293599, "location": "Mutchilba", "folder": "Tableland Mill Pads"}, {"name": "43A", "lat": -17.109383, "lon": 145.30116, "location": "Mutchilba", "folder": "Tableland Mill Pads"}, {"name": "41A", "lat": -17.123987, "lon": 145.309575, "location": "Mutchilba", "folder": "Tableland Mill Pads"}, {"name": "408A -- J316 - Black Mountain (Single)_NQDVG181201", "lat": -16.5876318, "lon": 145.3979682, "location": "", "folder": "Tableland Mill Pads"}, {"name": "407B Rasmussen J302 - Lagoon (Single Only)_NQDVG181201", "lat": -16.613041, "lon": 145.403484, "location": "", "folder": "Tableland Mill Pads"}, {"name": "407A Ramussen J301 - Euluma (Single Only)_NQDVG181201", "lat": -16.598164, "lon": 145.395439, "location": "", "folder": "Tableland Mill Pads"}, {"name": "405B Padovan J306 - Cavallaros (Single Only)_NQDVG181201", "lat": -16.648603, "lon": 145.399327, "location": "", "folder": "Tableland Mill Pads"}, {"name": "405A Padovan J307 - Waterhole (Single Only)_NQDVG181201", "lat": -16.643403, "lon": 145.394881, "location": "", "folder": "Tableland Mill Pads"}, {"name": "403C Farmer J310 - Junction_NQDVG181201", "lat": -16.634974, "lon": 145.349355, "location": "", "folder": "Tableland Mill Pads"}, {"name": "403B Farmer J309 - Sawbench_NQDVG181201", "lat": -16.6318629, "lon": 145.3418091, "location": "", "folder": "Tableland Mill Pads"}, {"name": "403A-Farmer J311 - Hilltop_NQDVG181201", "lat": -16.628531, "lon": 145.333201, "location": "", "folder": "Tableland Mill Pads"}, {"name": "402A Verri J314 - Kooyong_NQDVG181201", "lat": -16.588637, "lon": 145.333984, "location": "Rumula", "folder": "Tableland Mill Pads"}, {"name": "401A Verri J314 - Kooyong_NQDVG18120122", "lat": -16.590653, "lon": 145.340769, "location": "Rumula", "folder": "Tableland Mill Pads"}, {"name": "38Z", "lat": -17.077823, "lon": 145.317653, "location": "Chewko", "folder": "Tableland Mill Pads"}, {"name": "38K", "lat": -17.081035, "lon": 145.310227, "location": "", "folder": "Tableland Mill Pads"}, {"name": "38F", "lat": -17.097299, "lon": 145.317881, "location": "Chewko", "folder": "Tableland Mill Pads"}, {"name": "38B", "lat": -17.085632, "lon": 145.315779, "location": "", "folder": "Tableland Mill Pads"}, {"name": "38A", "lat": -17.086852, "lon": 145.324807, "location": "", "folder": "Tableland Mill Pads"}, {"name": "282A", "lat": -17.189112, "lon": 145.524015, "location": "Kairi", "folder": "Tableland Mill Pads"}, {"name": "277A", "lat": -17.305817, "lon": 145.555959, "location": "Yungaburra", "folder": "Tableland Mill Pads"}, {"name": "238", "lat": -17.230894, "lon": 145.469044, "location": "Tolga", "folder": "Tableland Mill Pads"}, {"name": "194C", "lat": -17.0801258, "lon": 145.4569971, "location": "Chewko", "folder": "Tableland Mill Pads"}, {"name": "160A", "lat": -16.911939, "lon": 145.410869, "location": "Biboohra", "folder": "Tableland Mill Pads"}, {"name": "101C", "lat": -17.131896, "lon": 145.155527, "location": "Dimbulah", "folder": "Tableland Mill Pads"}, {"name": "278", "lat": -17.2646667, "lon": 145.5510334, "location": "", "folder": "Tableland Mill Pads"}, {"name": "298", "lat": -17.2749034, "lon": 145.5442833, "location": "", "folder": "Tableland Mill Pads"}, {"name": "245A", "lat": -17.25033, "lon": 145.502687, "location": "Atherton", "folder": "Tableland Mill Pads"}, {"name": "254", "lat": -17.241932, "lon": 145.549285, "location": "", "folder": "Tableland Mill Pads"}, {"name": "208", "lat": -17.179265, "lon": 145.482768, "location": "Tolga", "folder": "Tableland Mill Pads"}];
+
+let map, markerLayer = {}, selectedPad = null;
+
+function init() {
+  document.getElementById("map-loading").style.display = "none";
+  map = L.map("map").setView([-17.15, 145.35], 10);
+
+  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    attribution: "© OpenStreetMap",
+    maxZoom: 18
+  }).addTo(map);
+
+  PADS.forEach(function(pad) {
+    var m = L.circleMarker([pad.lat, pad.lon], {
+      radius: 7,
+      fillColor: "#e94560",
+      color: "#fff",
+      weight: 1.5,
+      fillOpacity: 0.9
+    }).addTo(map);
+    m.bindTooltip(pad.name, { permanent: false, direction: "top" });
+    m.on("click", function() { selectPad(pad); });
+    markerLayer[pad.name] = m;
+  });
+
+  renderList(PADS);
+}
+
+function cssId(name) { return "item_" + name.replace(/[^a-zA-Z0-9]/g, "_"); }
+
+function renderList(pads) {
+  var list = document.getElementById("result-list");
+  var count = document.getElementById("result-count");
+  count.textContent = pads.length === PADS.length
+    ? "All " + PADS.length + " pads"
+    : pads.length + " of " + PADS.length + " pads";
+
+  list.innerHTML = pads.map(function(p) {
+    return "<div class="pad-item" id="" + cssId(p.name) + "" onclick="selectPadByName('" + p.name.replace(/'/g, "\'") + "')">"+
+      "<div class="pad-name">" + p.name + "</div>"+
+      "<div class="pad-loc">" + (p.location || p.folder || "No location") + "</div>"+
+      "</div>";
+  }).join("");
+}
+
+function selectPadByName(name) {
+  var pad = PADS.find(function(p) { return p.name === name; });
+  if (pad) selectPad(pad);
+}
+
+function selectPad(pad) {
+  if (selectedPad) {
+    var oldItem = document.getElementById(cssId(selectedPad.name));
+    if (oldItem) oldItem.classList.remove("active");
+    var oldM = markerLayer[selectedPad.name];
+    if (oldM) oldM.setStyle({ fillColor: "#e94560", radius: 7 });
+  }
+  selectedPad = pad;
+  var item = document.getElementById(cssId(pad.name));
+  if (item) { item.classList.add("active"); item.scrollIntoView({ block: "nearest" }); }
+  var m = markerLayer[pad.name];
+  if (m) { m.setStyle({ fillColor: "#ffcc00", radius: 11 }); }
+  map.setView([pad.lat, pad.lon], 15);
+  showPopup(pad);
+}
+
+function showPopup(pad) {
+  document.getElementById("popup-name").textContent = "Pad " + pad.name;
+  document.getElementById("popup-info").textContent =
+    (pad.location ? pad.location + "  ·  " : "") +
+    pad.lat.toFixed(6) + ", " + pad.lon.toFixed(6);
+  document.getElementById("popup-panel").style.display = "block";
+}
+
+function closePopup() {
+  document.getElementById("popup-panel").style.display = "none";
+}
+
+function openGoogleMaps() {
+  if (!selectedPad) return;
+  window.open(
+    "https://www.google.com/maps/dir/?api=1&destination=" + selectedPad.lat + "," + selectedPad.lon + "&travelmode=driving",
+    "_blank"
+  );
+}
+
+function openAppleMaps() {
+  if (!selectedPad) return;
+  window.open(
+    "https://maps.apple.com/?daddr=" + selectedPad.lat + "," + selectedPad.lon + "&dirflg=d",
+    "_blank"
+  );
+}
+
+function clearSearch() {
+  document.getElementById("search").value = "";
+  document.getElementById("clear-btn").style.display = "none";
+  renderList(PADS);
+}
+
+document.getElementById("search").addEventListener("input", function() {
+  var q = this.value.trim().toLowerCase();
+  document.getElementById("clear-btn").style.display = q ? "block" : "none";
+  if (!q) { renderList(PADS); return; }
+  var filtered = PADS.filter(function(p) {
+    return p.name.toLowerCase().includes(q) ||
+           p.location.toLowerCase().includes(q) ||
+           p.folder.toLowerCase().includes(q);
+  });
+  renderList(filtered);
+});
+
+// Init after DOM ready
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", init);
+} else {
+  init();
+}
+</script>
+</body>
+</html>
